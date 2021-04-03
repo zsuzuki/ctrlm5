@@ -5,6 +5,7 @@
 #include <RTC.h>
 #include <WiFi.h>
 #include <worker.hpp>
+#include <store.hpp>
 
 namespace
 {
@@ -51,6 +52,7 @@ namespace
   LGFX gfx;
   UI::Control ctrl;
   RTC rtc;
+  Store::Data store;
 
   UI::CheckBox chkBox1;
   UI::TextButton wifiBtn;
@@ -77,7 +79,7 @@ namespace
   };
 
   const char *ssid = "TEST-AP";
-  const char *password = "************";
+  char password[32];
   const char *ntpServer = "ntp.jst.mfeed.ad.jp";
   constexpr int TimeZone = 9 * 3600;
 
@@ -153,6 +155,7 @@ void setup()
   Serial.println("Launch");
   gfx.init();
   rtc.begin();
+  store.init("TEST", 128);
 
   gfx.setFont(&fonts::lgfxJapanGothic_24);
   ctrl.init(&gfx);
@@ -219,8 +222,13 @@ void setup()
   ctrl.setLayer(lyWIFIPW);
   ctrl.appendWidget(&keyboard);
   topY = 20;
-  keyboard.init();
+  keyboard.init(24);
   keyboard.setGeometory(10, topY);
+  keyboard.setPlaceHolder("wifi password");
+  if (store.loadString(0, password, sizeof(password)))
+    keyboard.setString(password);
+  else
+    strlcpy(password, "", sizeof(password));
 
   //
   ctrl.setLayer(lyDEFAULT);
@@ -228,6 +236,15 @@ void setup()
     int ly = ctrl.getLayer();
     if (ly == lyWIFI || ly == lyWIFIPW)
       ctrl.setLayer(lyDEFAULT);
+  });
+  Btn1.setPressFunction([] {
+    if (ctrl.getLayer() == lyWIFIPW)
+    {
+      char buff[20];
+      keyboard.getString(buff, sizeof(buff));
+      store.clearIndex();
+      store.storeString(buff);
+    }
   });
 
   //

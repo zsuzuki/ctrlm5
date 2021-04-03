@@ -62,6 +62,7 @@ namespace UI
         bool drawRequest = false;
         int fontWidth = 12;
         int fontHeight = 24;
+        std::vector<char> clipboard;
 
         void setBoundingBox(int x, int y, int w, int h)
         {
@@ -81,6 +82,25 @@ namespace UI
             {
                 gfx->fillRect(bbLeft, bbTop, bbRight - bbLeft, bbBottom - bbTop, TFT_BLACK);
                 resetBB();
+            }
+        }
+        void copy(std::vector<char> &src)
+        {
+            if (clipboard.capacity() == 0)
+                clipboard.reserve(48);
+            clipboard = src;
+            char buff[24];
+            snprintf(buff, sizeof(buff), "cp=%d,cap=%d", clipboard.size(), clipboard.capacity());
+            Serial.println(buff);
+        }
+        void paste(std::vector<char> &dst, std::vector<char>::iterator &it)
+        {
+            for (auto c : clipboard)
+            {
+                if (dst.size() < dst.capacity())
+                    dst.insert(it++, c);
+                else
+                    break;
             }
         }
     };
@@ -613,8 +633,15 @@ namespace UI
             Enter,
             Space,
             BackSpace,
+            Delete,
             Left,
             Right,
+            Clear,
+            Copy,
+            Paste,
+            Home,
+            End,
+            PWMode,
             Layer1,
             Layer2,
             Layer3,
@@ -638,6 +665,7 @@ namespace UI
         decltype(body)::iterator editIdx;
         int layer = 0;
         const CharInfo *current = nullptr;
+        bool passwordMode = false;
 
         const CharLayer &getLayer() const
         {
@@ -665,8 +693,8 @@ namespace UI
                   {'m', "ｍ"},
                   {'@', "＠"},
                   {Type::BackSpace, 2, "BS"}},
-                 {{Type::Layer2, 2, "aA"}, {Type::Space, 3, "SPC"}, {Type::Left, 2, "←"}, {Type::Right, 2, "→"}}}};
-            if (layer != 1)
+                 {{Type::Layer2, 2, "ABC"}, {Type::Space, 2, "SPC"}, {Type::Layer3, 2, "+="}, {Type::Left, 2, "←"}, {Type::Right, 2, "→"}}}};
+            if (layer == 0)
                 return defaultLayer;
             static const CharLayer shiftLayer = {
                 {{
@@ -681,7 +709,7 @@ namespace UI
                      {')', "）"},
                      {'^', "＾"},
                  },
-                 {{'Q', "Ｑ"}, {'W', "Ｗ"}, {'E', "Ｅ"}, {'R', "Ｒ"}, {'T', "Ｔ"}, {'Y', "Ｙ"}, {'U', "Ｕ"}, {'I', "Ｉ"}, {'O', "Ｏ"}, {'P', "０"}},
+                 {{'Q', "Ｑ"}, {'W', "Ｗ"}, {'E', "Ｅ"}, {'R', "Ｒ"}, {'T', "Ｔ"}, {'Y', "Ｙ"}, {'U', "Ｕ"}, {'I', "Ｉ"}, {'O', "Ｏ"}, {'P', "Ｐ"}},
                  {{'A', "Ａ"}, {'S', "Ｓ"}, {'D', "Ｄ"}, {'F', "Ｆ"}, {'G', "Ｇ"}, {'H', "Ｈ"}, {'J', "Ｊ"}, {'K', "Ｋ"}, {'L', "Ｌ"}, {';', "；"}},
                  {
                      {'Z', "Ｚ"},
@@ -692,11 +720,58 @@ namespace UI
                      {'N', "Ｎ"},
                      {'M', "Ｍ"},
                      {'=', "＝"},
+                     {Type::BackSpace, 2, "BS"},
+                 },
+                 {{Type::Layer1, 2, "abc"}, {Type::Space, 2, "SPC"}, {Type::Layer3, 2, "+="}, {Type::Left, 2, "←"}, {Type::Right, 2, "→"}}}};
+            if (layer == 1)
+                return shiftLayer;
+            static const CharLayer symbolLayer = {
+                {{
                      {'+', "＋"},
                      {'-', "ー"},
+                     {'/', "／"},
+                     {'*', "＊"},
+                     {'=', "＝"},
+                     {':', "："},
+                     {'[', "［"},
+                     {']', "］"},
+                     {'<', "＜"},
+                     {'>', "＞"},
                  },
-                 {{Type::Layer1, 2, "Aa"}, {Type::Space, 3, "SPC"}}}};
-            return shiftLayer;
+                 {
+                     {'{', "｛"},
+                     {'}', "｝"},
+                     {'?', "？"},
+                     {'_', "＿"},
+                     {'|', "｜"},
+                     {'~', "〜"},
+                     {'\\', "￥"},
+                     {',', "，"},
+                     {'`', "｀"},
+                     {'@', "＠"},
+                 },
+                 {
+                     {'!', "！"},
+                     {'"', "”"},
+                     {'#', "＃"},
+                     {'$', "＄"},
+                     {'%', "％"},
+                     {'&', "＆"},
+                     {'\'', "’"},
+                     {'(', "（"},
+                     {')', "）"},
+                     {'^', "＾"},
+                 },
+                 {
+                     {'.', "．"},
+                     {';', "；"},
+                     {Type::Copy, 2, "写"},
+                     {Type::Paste, 2, "貼"},
+                     {Type::Clear, 2, "Clr"},
+                     {Type::BackSpace, 2, "BS"},
+                 },
+                 {{Type::Layer1, 2, "abc"}, {Type::Space, 2, "SPC"}, {Type::Layer2, 2, "ABC"}, {Type::Left, 2, "←"}, {Type::Right, 2, "→"}}}};
+            return symbolLayer;
         }
 
         void draw() override
@@ -707,7 +782,7 @@ namespace UI
             gfx->drawRect(x, y, w, context->fontHeight + mY, TFT_WHITE);
             int fontW = context->fontWidth;
             {
-                 // カーソル表示
+                // カーソル表示
                 int curIdx = std::distance(body.begin(), editIdx);
                 int cy = dy + context->fontHeight - 2;
                 int bx = x + curIdx * fontW + mX;
@@ -722,11 +797,15 @@ namespace UI
             else
             {
                 // 編集文字列
-                char buff[33];
-                memcpy(buff, body.data(), body.size());
-                buff[body.size()] = '\0';
-                gfx->setTextColor(TFT_WHITE);
-                gfx->drawString(buff, x + mX, dy);
+                gfx->setTextColor(passwordMode ? TFT_RED : TFT_WHITE);
+                int dx = x + mX;
+                for (auto c : body)
+                {
+                    if (passwordMode)
+                        c = '*';
+                    gfx->drawChar(c, dx, dy + context->fontHeight - mY);
+                    dx += context->fontWidth;
+                }
             }
             //
             dy += context->fontHeight + mY;
@@ -814,6 +893,29 @@ namespace UI
                         if (editIdx != body.begin())
                             body.erase(--editIdx);
                         break;
+                    case Type::Delete:
+                        if (body.empty() == false && editIdx != body.end())
+                            body.erase(editIdx);
+                        break;
+                    case Type::Home:
+                        editIdx = body.begin();
+                        break;
+                    case Type::End:
+                        editIdx = body.end();
+                        break;
+                    case Type::Clear:
+                        body.resize(0);
+                        editIdx = body.begin();
+                        break;
+                    case Type::Copy:
+                        context->copy(body);
+                        break;
+                    case Type::Paste:
+                        context->paste(body, editIdx);
+                        break;
+                    case Type::PWMode:
+                        passwordMode = !passwordMode;
+                        break;
                     default:
                         break;
                     }
@@ -838,6 +940,32 @@ namespace UI
             editIdx = body.begin();
         }
 
-        const char *getString() const { return body.data(); }
+        void setPlaceHolder(const char *ph)
+        {
+            placeHolder = ph;
+        }
+
+        void setString(const char *buff)
+        {
+            int len = strlen(buff);
+            if (len > body.capacity())
+                len = body.capacity();
+            body.resize(len);
+            editIdx = body.end();
+            memcpy(body.data(), buff, len);
+            Serial.println(buff);
+        }
+
+        void getString(char *buff, size_t buffsize) const
+        {
+            auto sz = min(body.size(), buffsize);
+            memset(buff, '\0', buffsize);
+            memcpy(buff, body.data(), sz);
+        }
+
+        void setPasswordMode(bool md)
+        {
+            passwordMode = md;
+        }
     };
 }
