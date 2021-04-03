@@ -62,8 +62,8 @@ namespace Store
                     idx.size = EEPROM.readByte(p++);
                     idx.pos = p;
                     p += idx.size;
-                    snprintf(buff, sizeof(buff), "data: %d(size=%d)", idx.pos, idx.size);
-                    Serial.println(buff);
+                    // snprintf(buff, sizeof(buff), "data: %d(size=%d)", idx.pos, idx.size);
+                    // Serial.println(buff);
                 }
                 writePoint = p;
             }
@@ -89,10 +89,10 @@ namespace Store
                 indices.push_back(idx);
                 EEPROM.writeByte(sizeof(Header), indices.size());
                 EEPROM.commit();
-                Serial.println(str);
-                char buff[48];
-                snprintf(buff, sizeof(buff), "store: id=%d,pos=%d,size=%d", id, idx.pos, idx.size);
-                Serial.println(buff);
+                // Serial.println(str);
+                // char buff[48];
+                // snprintf(buff, sizeof(buff), "store: id=%d,pos=%d,size=%d", id, idx.pos, idx.size);
+                // Serial.println(buff);
                 return id;
             }
             Serial.println("store: failed");
@@ -107,9 +107,9 @@ namespace Store
                 size_t rsz = buffsize - 1;
                 size_t sz = idx.size < rsz ? idx.size : rsz;
                 EEPROM.readBytes(idx.pos, buff, sz);
-                char buff[48];
-                snprintf(buff, sizeof(buff), "load: pos=%d,size=%d", idx.pos, idx.size);
-                Serial.println(buff);
+                // char buff[48];
+                // snprintf(buff, sizeof(buff), "load: pos=%d,size=%d", idx.pos, idx.size);
+                // Serial.println(buff);
                 return true;
             }
             Serial.println("load: no data");

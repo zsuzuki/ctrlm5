@@ -78,18 +78,32 @@ namespace
     lyWIFIPW,
   };
 
-  const char *ssid = "TEST-AP";
+  char ssid[32];
   char password[32];
   const char *ntpServer = "ntp.jst.mfeed.ad.jp";
   constexpr int TimeZone = 9 * 3600;
 
   Worker::Task worker;
+  volatile bool wifiScanLoop = true;
+  void cancelScanWifi()
+  {
+    wifiScanLoop = false;
+    Serial.println("wifi scan cancel");
+  }
 }
 
+//
+// 時刻
+//
 void adjustDayTime()
 {
+  if (ssid[0] == '\0')
+  {
+    Serial.println("adjust time failed: no ssid");
+    return;
+  }
   WiFi.begin(ssid, password);
-  Serial.print("Wifi connect:");
+  Serial.printf("Wifi connect:[%s]", ssid);
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(500);
@@ -125,6 +139,7 @@ void adjustDayTime()
   Serial.println("setting done.");
 }
 
+//
 bool updateTime()
 {
   RTC_TimeTypeDef t;
@@ -135,6 +150,55 @@ bool updateTime()
   return true;
 }
 
+//
+// Wifi scan
+//
+void scanWifi()
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.scanNetworks(true);
+
+  bool scan = true;
+  while (wifiScanLoop)
+  {
+    int ret = WiFi.scanComplete();
+    if (ret == WIFI_SCAN_FAILED)
+    {
+      Serial.println("failed... retry");
+      WiFi.scanDelete();
+      WiFi.scanNetworks(true);
+      scan = true;
+    }
+    else if (ret == WIFI_SCAN_RUNNING)
+    {
+      if (scan)
+        Serial.println("scanning...");
+      scan = false;
+    }
+    else if (ret == 0)
+    {
+      Serial.println("no networks");
+      break;
+    }
+    else
+    {
+      for (int i = 0; i < ret; i++)
+      {
+        auto ssid = WiFi.SSID(i);
+        Serial.println(ssid);
+        apList.append(ssid.c_str());
+      }
+      WiFi.scanDelete();
+      break;
+    }
+    delay(100);
+  }
+  Serial.println("wifi scan done");
+}
+
+//
+// Application
+//
 void buttonUpdate(int x, int y, bool touch)
 {
   Btn0.check(x, y, touch);
@@ -172,7 +236,12 @@ void setup()
   topY += chkBox1.getHeight() + 5;
   wifiBtn.setCaption("Wifi設定");
   wifiBtn.setGeometory(40, topY);
-  wifiBtn.setPressFunction([](UI::Widget *) { ctrl.setLayer(lyWIFI); });
+  wifiBtn.setPressFunction([](UI::Widget *) {
+    ctrl.setLayer(lyWIFI);
+    apList.clear();
+    wifiScanLoop = true;
+    worker.signal([](int n) { scanWifi(); }, 0);
+  });
   topY += wifiBtn.getHeight() + 5;
   dateBtn.setCaption("日付・時刻");
   dateBtn.setGeometory(60, topY);
@@ -204,17 +273,11 @@ void setup()
   ctrl.appendWidget(&apList);
   topY = 10;
   apList.setGeometory(20, topY);
-  apList.init(6, 200);
-  apList.append("List1");
-  apList.append("Item 2");
-  apList.append("Box-3");
-  apList.append("String_4");
-  apList.append("Wifi5");
-  apList.append("TEST=6");
+  apList.init(6, 240);
   apList.setSelectFunction([](int idx, const char *str) {
-    char buff[32];
-    snprintf(buff, sizeof(buff), "Select: %d %s", idx, str);
-    Serial.println(buff);
+    cancelScanWifi();
+    strlcpy(ssid, str, sizeof(ssid));
+    Serial.println(ssid);
     ctrl.setLayer(lyWIFIPW);
   });
 
@@ -229,21 +292,29 @@ void setup()
     keyboard.setString(password);
   else
     strlcpy(password, "", sizeof(password));
+  if (!store.loadString(1, ssid, sizeof(ssid)))
+    strlcpy(ssid, "", sizeof(ssid));
 
   //
   ctrl.setLayer(lyDEFAULT);
   Btn0.setPressFunction([] {
     int ly = ctrl.getLayer();
-    if (ly == lyWIFI || ly == lyWIFIPW)
+    if (ly == lyWIFI)
+    {
+      cancelScanWifi();
+      ctrl.setLayer(lyDEFAULT);
+    }
+    else if (ly == lyWIFIPW)
       ctrl.setLayer(lyDEFAULT);
   });
   Btn1.setPressFunction([] {
     if (ctrl.getLayer() == lyWIFIPW)
     {
-      char buff[20];
-      keyboard.getString(buff, sizeof(buff));
+      keyboard.getString(password, sizeof(password));
       store.clearIndex();
-      store.storeString(buff);
+      store.storeString(password);
+      store.storeString(ssid);
+      ctrl.setLayer(lyDEFAULT);
     }
   });
 

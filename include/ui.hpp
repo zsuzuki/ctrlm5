@@ -89,9 +89,6 @@ namespace UI
             if (clipboard.capacity() == 0)
                 clipboard.reserve(48);
             clipboard = src;
-            char buff[24];
-            snprintf(buff, sizeof(buff), "cp=%d,cap=%d", clipboard.size(), clipboard.capacity());
-            Serial.println(buff);
         }
         void paste(std::vector<char> &dst, std::vector<char>::iterator &it)
         {
@@ -509,9 +506,7 @@ namespace UI
         static constexpr int mX = 5; // margin X
         static constexpr int mY = 5; // margin Y
 
-        const char **strList = nullptr;
-        size_t nbList = 0;
-        size_t capacity = 0;
+        std::vector<String> strList;
         size_t selected = -1;
         SelectFunction selectFunc = nullptr;
         portMUX_TYPE listMux = portMUX_INITIALIZER_UNLOCKED;
@@ -521,7 +516,7 @@ namespace UI
             gfx->drawRect(x, y, w, h, TFT_WHITE);
             int dy = y;
             portENTER_CRITICAL(&listMux);
-            for (size_t i = 0; i < nbList; i++)
+            for (size_t i = 0; i < strList.size(); i++)
             {
                 int fg = i == selected ? TFT_BLACK : TFT_WHITE;
                 int bg = i == selected ? TFT_ORANGE : TFT_BLACK;
@@ -536,7 +531,7 @@ namespace UI
         {
             size_t sel = ofsy / (context->fontHeight + mY);
             portENTER_CRITICAL(&listMux);
-            if (sel < nbList)
+            if (sel < strList.size())
             {
                 if (sel != selected)
                 {
@@ -544,7 +539,7 @@ namespace UI
                     selected = sel;
                 }
                 else if (selectFunc)
-                    selectFunc(selected, strList[selected]);
+                    selectFunc(selected, strList[selected].c_str());
             }
             portEXIT_CRITICAL(&listMux);
         }
@@ -559,61 +554,62 @@ namespace UI
         }
 
         //
-        void init(size_t n, int width = 0)
+        void init(size_t n, int width = 0, int height = 0)
         {
-            if (n != nbList)
+            portENTER_CRITICAL(&listMux);
+            if (height == 0)
+                height = n * (context->fontHeight + mY) + mY;
+
+            if (n > strList.capacity())
             {
-                if (strList)
-                    free(strList);
-                strList = (const char **)malloc(sizeof(const char *) * n);
-                nbList = 0;
-                capacity = n;
-                for (int i = 0; i < n; i++)
-                    strList[n] = nullptr;
-                h = (context->fontHeight + mY) * n + mY;
+                strList.reserve(n);
+                strList.resize(0);
                 w = 0;
             }
             if (width != 0)
             {
                 w = width;
             }
+            h = height;
+            portEXIT_CRITICAL(&listMux);
         }
         void clear()
         {
-            nbList = 0;
-            capacity = 0;
-            strList = nullptr;
+            portENTER_CRITICAL(&listMux);
+            strList.resize(0);
+            update();
+            portEXIT_CRITICAL(&listMux);
         }
         bool append(const char *s)
         {
             bool ret = false;
             portENTER_CRITICAL(&listMux);
-            if (strList && nbList < capacity)
+            if (strList.size() < strList.capacity())
             {
-                strList[nbList++] = s;
+                strList.push_back(s);
                 int width = utf8len(s) * context->fontWidth;
                 if (w < width)
                     w = width;
                 ret = true;
+                update();
             }
             portEXIT_CRITICAL(&listMux);
             return ret;
         }
-        size_t size() const { return nbList; }
+        size_t size() const { return strList.size(); }
         const char *operator[](size_t idx) const
         {
-            if (idx < nbList)
-                return strList[idx];
+            if (idx < strList.size())
+                return strList[idx].c_str();
             return nullptr;
         }
         void erase(size_t idx)
         {
             portENTER_CRITICAL(&listMux);
-            if (idx < nbList)
+            if (idx < strList.size())
             {
-                for (int i = idx; i < nbList - 1; i++)
-                    strList[i] = strList[i + 1];
-                nbList -= 1;
+                strList.erase(strList.begin() + idx);
+                update();
             }
             portEXIT_CRITICAL(&listMux);
         }
@@ -953,7 +949,7 @@ namespace UI
             body.resize(len);
             editIdx = body.end();
             memcpy(body.data(), buff, len);
-            Serial.println(buff);
+            // Serial.println(buff);
         }
 
         void getString(char *buff, size_t buffsize) const
