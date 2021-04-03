@@ -62,6 +62,8 @@ namespace
 
   UI::ListBox apList;
 
+  UI::Keyboard keyboard;
+
   hw_timer_t *timer = nullptr;
   portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
   volatile int vcnt = 0;
@@ -71,6 +73,7 @@ namespace
     lyDEFAULT,
     lyWIFI,
     lyDATETIME,
+    lyWIFIPW,
   };
 
   const char *ssid = "TEST-AP";
@@ -193,7 +196,7 @@ void setup()
   retBtn.setGeometory(50, topY);
   retBtn.setPressFunction([](UI::Widget *) { ctrl.setLayer(lyDEFAULT); });
 
-  // wifi8
+  // wifi
   ctrl.setLayer(lyWIFI);
   ctrl.appendWidget(&apList);
   topY = 10;
@@ -209,12 +212,21 @@ void setup()
     char buff[32];
     snprintf(buff, sizeof(buff), "Select: %d %s", idx, str);
     Serial.println(buff);
+    ctrl.setLayer(lyWIFIPW);
   });
+
+  // keyboard
+  ctrl.setLayer(lyWIFIPW);
+  ctrl.appendWidget(&keyboard);
+  topY = 20;
+  keyboard.init();
+  keyboard.setGeometory(10, topY);
 
   //
   ctrl.setLayer(lyDEFAULT);
   Btn0.setPressFunction([] {
-    if (ctrl.getLayer() == lyWIFI)
+    int ly = ctrl.getLayer();
+    if (ly == lyWIFI || ly == lyWIFIPW)
       ctrl.setLayer(lyDEFAULT);
   });
 

@@ -6,6 +6,8 @@
 
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
+#include <vector>
+#include <array>
 
 namespace UI
 {
@@ -513,6 +515,7 @@ namespace UI
         void onPressed(int, int ofsy) override
         {
             size_t sel = ofsy / (context->fontHeight + mY);
+            portENTER_CRITICAL(&listMux);
             if (sel < nbList)
             {
                 if (sel != selected)
@@ -523,6 +526,7 @@ namespace UI
                 else if (selectFunc)
                     selectFunc(selected, strList[selected]);
             }
+            portEXIT_CRITICAL(&listMux);
         }
 
     public:
@@ -562,17 +566,18 @@ namespace UI
         }
         bool append(const char *s)
         {
+            bool ret = false;
+            portENTER_CRITICAL(&listMux);
             if (strList && nbList < capacity)
             {
-                portENTER_CRITICAL(&listMux);
                 strList[nbList++] = s;
                 int width = utf8len(s) * context->fontWidth;
                 if (w < width)
                     w = width;
-                portEXIT_CRITICAL(&listMux);
-                return true;
+                ret = true;
             }
-            return false;
+            portEXIT_CRITICAL(&listMux);
+            return ret;
         }
         size_t size() const { return nbList; }
         const char *operator[](size_t idx) const
@@ -583,14 +588,251 @@ namespace UI
         }
         void erase(size_t idx)
         {
+            portENTER_CRITICAL(&listMux);
             if (idx < nbList)
             {
-                portENTER_CRITICAL(&listMux);
                 for (int i = idx; i < nbList - 1; i++)
                     strList[i] = strList[i + 1];
                 nbList -= 1;
-                portEXIT_CRITICAL(&listMux);
+            }
+            portEXIT_CRITICAL(&listMux);
+        }
+    };
+
+    //
+    // UI:キーボード
+    //
+    class Keyboard : public Widget
+    {
+        static constexpr int mX = 5; // margin X
+        static constexpr int mY = 5; // margin Y
+
+        enum class Type : uint8_t
+        {
+            Char,
+            Enter,
+            Space,
+            BackSpace,
+            Left,
+            Right,
+            Layer1,
+            Layer2,
+            Layer3,
+        };
+        struct CharInfo
+        {
+            Type type = Type::Char;
+            const char *dispChar = "a";
+            int code = 'a';
+            int size = 1;
+            CharInfo() = default;
+            CharInfo(int c, const char *d) : dispChar(d), code(c) {}
+            CharInfo(Type t, int s, const char *d) : type(t), dispChar(d), code('\0'), size(s) {}
+        };
+        using CharLine = std::vector<CharInfo>;
+        using CharLayer = std::array<CharLine, 5>;
+
+        String title{};
+        String placeHolder = "Place Holder";
+        std::vector<char> body;
+        decltype(body)::iterator editIdx;
+        int layer = 0;
+        const CharInfo *current = nullptr;
+
+        const CharLayer &getLayer() const
+        {
+            static const CharLayer defaultLayer = {
+                {{
+                     {'1', "１"},
+                     {'2', "２"},
+                     {'3', "３"},
+                     {'4', "４"},
+                     {'5', "５"},
+                     {'6', "６"},
+                     {'7', "７"},
+                     {'8', "８"},
+                     {'9', "９"},
+                     {'0', "０"},
+                 },
+                 {{'q', "ｑ"}, {'w', "ｗ"}, {'e', "ｅ"}, {'r', "ｒ"}, {'t', "ｔ"}, {'y', "ｙ"}, {'u', "ｕ"}, {'i', "ｉ"}, {'o', "ｏ"}, {'p', "ｐ"}},
+                 {{'a', "ａ"}, {'s', "ｓ"}, {'d', "ｄ"}, {'f', "ｆ"}, {'g', "ｇ"}, {'h', "ｈ"}, {'j', "ｊ"}, {'k', "ｋ"}, {'l', "ｌ"}, {'.', "."}},
+                 {{'z', "ｚ"},
+                  {'x', "ｘ"},
+                  {'c', "ｃ"},
+                  {'v', "ｖ"},
+                  {'b', "ｂ"},
+                  {'n', "ｎ"},
+                  {'m', "ｍ"},
+                  {'@', "＠"},
+                  {Type::BackSpace, 2, "BS"}},
+                 {{Type::Layer2, 2, "aA"}, {Type::Space, 3, "SPC"}, {Type::Left, 2, "←"}, {Type::Right, 2, "→"}}}};
+            if (layer != 1)
+                return defaultLayer;
+            static const CharLayer shiftLayer = {
+                {{
+                     {'!', "！"},
+                     {'"', "”"},
+                     {'#', "＃"},
+                     {'$', "＄"},
+                     {'%', "％"},
+                     {'&', "＆"},
+                     {'\'', "’"},
+                     {'(', "（"},
+                     {')', "）"},
+                     {'^', "＾"},
+                 },
+                 {{'Q', "Ｑ"}, {'W', "Ｗ"}, {'E', "Ｅ"}, {'R', "Ｒ"}, {'T', "Ｔ"}, {'Y', "Ｙ"}, {'U', "Ｕ"}, {'I', "Ｉ"}, {'O', "Ｏ"}, {'P', "０"}},
+                 {{'A', "Ａ"}, {'S', "Ｓ"}, {'D', "Ｄ"}, {'F', "Ｆ"}, {'G', "Ｇ"}, {'H', "Ｈ"}, {'J', "Ｊ"}, {'K', "Ｋ"}, {'L', "Ｌ"}, {';', "；"}},
+                 {
+                     {'Z', "Ｚ"},
+                     {'X', "Ｘ"},
+                     {'C', "Ｃ"},
+                     {'V', "Ｖ"},
+                     {'B', "Ｂ"},
+                     {'N', "Ｎ"},
+                     {'M', "Ｍ"},
+                     {'=', "＝"},
+                     {'+', "＋"},
+                     {'-', "ー"},
+                 },
+                 {{Type::Layer1, 2, "Aa"}, {Type::Space, 3, "SPC"}}}};
+            return shiftLayer;
+        }
+
+        void draw() override
+        {
+            const auto &nl = getLayer();
+            int dy = y + mY;
+            gfx->fillRect(x, y, w, context->fontHeight + mY, TFT_BLACK);
+            gfx->drawRect(x, y, w, context->fontHeight + mY, TFT_WHITE);
+            int fontW = context->fontWidth;
+            {
+                int curIdx = std::distance(body.begin(), editIdx);
+                int cy = dy + context->fontHeight - 1;
+                int bx = x + curIdx * fontW + mX;
+                gfx->drawLine(bx, cy, bx + fontW, cy, TFT_GREEN);
+            }
+            if (body.empty())
+            {
+                gfx->setTextColor(TFT_DARKGRAY);
+                gfx->drawString(placeHolder, x + mX, dy);
+            }
+            else
+            {
+                char buff[33];
+                memcpy(buff, body.data(), body.size());
+                buff[body.size()] = '\0';
+                gfx->setTextColor(TFT_WHITE);
+                gfx->drawString(buff, x + mX, dy);
+            }
+            dy += context->fontHeight + mY;
+            int w1 = context->fontWidth * 2 + mX;
+            for (const auto &l : nl)
+            {
+                int dx = x;
+                for (const auto &c : l)
+                {
+                    int dw = w1 * c.size - mX;
+                    int dh = context->fontHeight;
+                    int len = utf8len(c.dispChar);
+                    int ofs = max(0, (w1 * c.size - fontW * len) / 2 - mX);
+                    bool sel = current == &c;
+                    gfx->fillRect(dx, dy, dw, dh, sel ? TFT_SKYBLUE : TFT_WHITE);
+                    gfx->setTextColor(TFT_BLACK);
+                    gfx->drawString(c.dispChar, dx + ofs, dy);
+                    dx += dw + mX;
+                }
+                dy += context->fontHeight + mY;
             }
         }
+
+        void onPressed(int ofsx, int ofsy) override
+        {
+            int rh = context->fontHeight + mY;
+            int sy = (ofsy - rh) / rh;
+            int sx = ofsx / (context->fontWidth * 2 + mX);
+            auto insert = [&](int ch) {
+                if (body.size() < body.capacity())
+                    body.insert(editIdx++, ch);
+            };
+            auto chgLayer = [&](int l) {
+                layer = l;
+                gfx->fillRect(x, y + rh, w, h - rh, TFT_BLACK);
+            };
+
+            const auto &ly = getLayer();
+            current = nullptr;
+            for (const auto &l : ly)
+            {
+                int ssx = sx;
+                for (const auto &c : l)
+                {
+                    if (ssx >= 0 && ssx < c.size && sy == 0)
+                    {
+                        current = &c;
+                        break;
+                    }
+                    ssx -= c.size;
+                }
+                if (current)
+                    break;
+                sy -= 1;
+            }
+            //
+            if (current)
+            {
+                if (current->type != Type::Char)
+                {
+                    switch (current->type)
+                    {
+                    case Type::Space:
+                        insert(' ');
+                        break;
+                    case Type::Layer1:
+                        chgLayer(0);
+                        break;
+                    case Type::Layer2:
+                        chgLayer(1);
+                        break;
+                    case Type::Layer3:
+                        chgLayer(2);
+                        break;
+                    case Type::Left:
+                        if (editIdx != body.begin())
+                            --editIdx;
+                        break;
+                    case Type::Right:
+                        if (editIdx < body.end())
+                            editIdx++;
+                        break;
+                    case Type::BackSpace:
+                        if (editIdx != body.begin())
+                            body.erase(--editIdx);
+                        break;
+                    default:
+                        break;
+                    }
+                }
+                else
+                    insert(current->code);
+            }
+            update();
+        }
+
+    public:
+        ~Keyboard() = default;
+
+        void init(size_t cap = 16)
+        {
+            if (cap > 32)
+                cap = 32;
+            w = (context->fontWidth * 2 + mX) * 10;
+            h = (context->fontHeight + mY) * 6;
+            body.reserve(cap);
+            body.resize(0);
+            editIdx = body.begin();
+        }
+
+        const char *getString() const { return body.data(); }
     };
 }
