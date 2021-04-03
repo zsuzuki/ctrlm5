@@ -707,24 +707,28 @@ namespace UI
             gfx->drawRect(x, y, w, context->fontHeight + mY, TFT_WHITE);
             int fontW = context->fontWidth;
             {
+                 // カーソル表示
                 int curIdx = std::distance(body.begin(), editIdx);
-                int cy = dy + context->fontHeight - 1;
+                int cy = dy + context->fontHeight - 2;
                 int bx = x + curIdx * fontW + mX;
-                gfx->drawLine(bx, cy, bx + fontW, cy, TFT_GREEN);
+                gfx->fillRect(bx, cy, fontW, 2, TFT_GREEN);
             }
             if (body.empty())
             {
+                // 未入力状態のプレースホルダー表示
                 gfx->setTextColor(TFT_DARKGRAY);
                 gfx->drawString(placeHolder, x + mX, dy);
             }
             else
             {
+                // 編集文字列
                 char buff[33];
                 memcpy(buff, body.data(), body.size());
                 buff[body.size()] = '\0';
                 gfx->setTextColor(TFT_WHITE);
                 gfx->drawString(buff, x + mX, dy);
             }
+            //
             dy += context->fontHeight + mY;
             int w1 = context->fontWidth * 2 + mX;
             for (const auto &l : nl)
@@ -762,6 +766,7 @@ namespace UI
 
             const auto &ly = getLayer();
             current = nullptr;
+            // 選択する文字を検索
             for (const auto &l : ly)
             {
                 int ssx = sx;
