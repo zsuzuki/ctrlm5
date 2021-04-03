@@ -476,6 +476,10 @@ namespace UI
         ~CheckBox() = default;
 
         //
+        void setValue(bool on) { checked = on; }
+        bool getValue() const { return checked; }
+
+        //
         void setCaption(String c) override
         {
             caption = c;

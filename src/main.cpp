@@ -69,6 +69,7 @@ namespace
   hw_timer_t *timer = nullptr;
   portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
   volatile int vcnt = 0;
+  bool updateSSID = false;
 
   enum LayerID : int
   {
@@ -231,8 +232,9 @@ void setup()
   ctrl.appendWidget(&dateBtn);
 
   int topY = 10;
-  chkBox1.setCaption("ボタンです");
+  chkBox1.setCaption("情報表示");
   chkBox1.setGeometory(40, topY);
+  chkBox1.setValue(true);
   topY += chkBox1.getHeight() + 5;
   wifiBtn.setCaption("Wifi設定");
   wifiBtn.setGeometory(40, topY);
@@ -244,7 +246,7 @@ void setup()
   });
   topY += wifiBtn.getHeight() + 5;
   dateBtn.setCaption("日付・時刻");
-  dateBtn.setGeometory(60, topY);
+  dateBtn.setGeometory(40, topY);
   dateBtn.setPressFunction([](UI::Widget *) { ctrl.setLayer(lyDATETIME); });
 
   // time
@@ -292,7 +294,9 @@ void setup()
     keyboard.setString(password);
   else
     strlcpy(password, "", sizeof(password));
-  if (!store.loadString(1, ssid, sizeof(ssid)))
+  if (store.loadString(1, ssid, sizeof(ssid)))
+    updateSSID = true;
+  else
     strlcpy(ssid, "", sizeof(ssid));
 
   //
@@ -315,6 +319,7 @@ void setup()
       store.storeString(password);
       store.storeString(ssid);
       ctrl.setLayer(lyDEFAULT);
+      updateSSID = true;
     }
   });
 
@@ -354,25 +359,28 @@ void loop()
     char buff[24];
     gfx.startWrite();
     ctrl.drawWidgets();
-    gfx.setTextColor(TFT_YELLOW);
-    // static int dx = 0, dy = 0;
-    // bool dtch = false;
-    // if (dx != x || dy != y || dtch != tch)
-    // {
-    //   gfx.fillRect(20, 180, 240, 20, TFT_BLACK);
-    //   snprintf(buff, sizeof(buff), "%d x %d(%d)", x, y, tch);
-    //   gfx.drawString(buff, 20, 180);
-    //   dx = x;
-    //   dy = y;
-    //   dtch = tch;
-    // }
-    static int ns = 0;
-    if (ns != nTime.Seconds)
+    if (chkBox1.getValue())
     {
-      gfx.fillRect(20, 200, 240, 20, TFT_BLACK);
-      snprintf(buff, sizeof(buff), "%02d:%02d.%02d", nTime.Hours, nTime.Minutes, nTime.Seconds);
-      gfx.drawString(buff, 50, 200);
-      ns = nTime.Seconds;
+      gfx.setTextColor(TFT_YELLOW);
+      static int ns = 0;
+      if (ns != nTime.Seconds)
+      {
+        gfx.fillRect(5, 205, 110, 24, TFT_BLACK);
+        snprintf(buff, sizeof(buff), "%02d:%02d.%02d", nTime.Hours, nTime.Minutes, nTime.Seconds);
+        gfx.drawString(buff, 5, 205);
+        ns = nTime.Seconds;
+      }
+      if (updateSSID)
+      {
+        gfx.fillRect(120, 205, 200, 24, TFT_BLACK);
+        gfx.drawString(ssid, 120, 205);
+        updateSSID = false;
+      }
+    }
+    else
+    {
+      gfx.fillRect(0, 205, 320, 24, TFT_BLACK);
+      updateSSID = true;
     }
     gfx.fillRect(20, 230, 60, 10, Btn0.onPressed() ? TFT_BLUE : TFT_BLACK);
     gfx.fillRect(130, 230, 60, 10, Btn1.onPressed() ? TFT_RED : TFT_BLACK);
