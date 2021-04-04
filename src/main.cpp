@@ -6,6 +6,7 @@
 #include <WiFi.h>
 #include <worker.hpp>
 #include <store.hpp>
+#include <SD.h>
 
 namespace
 {
@@ -56,6 +57,7 @@ namespace
 
   UI::CheckBox chkBox1;
   UI::TextButton wifiBtn;
+  UI::TextButton imgBtn;
   UI::TextButton dateBtn;
   RTC_TimeTypeDef nTime;
 
@@ -63,6 +65,8 @@ namespace
   UI::TextButton retBtn;
 
   UI::ListBox apList;
+
+  UI::ListBox imgList;
 
   UI::Keyboard keyboard;
 
@@ -77,6 +81,7 @@ namespace
     lyWIFI,
     lyDATETIME,
     lyWIFIPW,
+    lyIMGLIST,
   };
 
   char ssid[32];
@@ -198,6 +203,24 @@ void scanWifi()
 }
 
 //
+// SD "/" scan
+//
+void scanFileSD()
+{
+  Serial.println("SD scan");
+  if (File dir = SD.open("/"))
+  {
+    while (File file = dir.openNextFile())
+    {
+      Serial.println(file.name());
+      if (file.isDirectory() == false)
+        imgList.append(file.name());
+    }
+  }
+  Serial.println("SD scan done");
+}
+
+//
 // Application
 //
 void buttonUpdate(int x, int y, bool touch)
@@ -220,6 +243,7 @@ void setup()
   Serial.println("Launch");
   gfx.init();
   rtc.begin();
+  SD.begin(4);
   store.init("TEST", 128);
 
   gfx.setFont(&fonts::lgfxJapanGothic_24);
@@ -228,6 +252,7 @@ void setup()
   // main
   ctrl.setLayer(lyDEFAULT);
   ctrl.appendWidget(&chkBox1);
+  ctrl.appendWidget(&imgBtn);
   ctrl.appendWidget(&wifiBtn);
   ctrl.appendWidget(&dateBtn);
 
@@ -236,13 +261,20 @@ void setup()
   chkBox1.setGeometory(40, topY);
   chkBox1.setValue(true);
   topY += chkBox1.getHeight() + 5;
+  imgBtn.setCaption("画像リスト");
+  imgBtn.setGeometory(40, topY);
+  imgBtn.setPressFunction([](UI::Widget *) {
+    ctrl.setLayer(lyIMGLIST);
+    worker.signal([](int) { scanFileSD(); }, 0);
+  });
+  topY += imgBtn.getHeight() + 5;
   wifiBtn.setCaption("Wifi設定");
   wifiBtn.setGeometory(40, topY);
   wifiBtn.setPressFunction([](UI::Widget *) {
     ctrl.setLayer(lyWIFI);
     apList.clear();
     wifiScanLoop = true;
-    worker.signal([](int n) { scanWifi(); }, 0);
+    worker.signal([](int) { scanWifi(); }, 0);
   });
   topY += wifiBtn.getHeight() + 5;
   dateBtn.setCaption("日付・時刻");
@@ -299,17 +331,34 @@ void setup()
   else
     strlcpy(ssid, "", sizeof(ssid));
 
+  // image list
+  ctrl.setLayer(lyIMGLIST);
+  ctrl.appendWidget(&imgList);
+  topY = 10;
+  imgList.init(6, 240);
+  imgList.setGeometory(20, topY);
+  apList.setSelectFunction([](int idx, const char *str) {
+    Serial.println(str);
+  });
+
   //
   ctrl.setLayer(lyDEFAULT);
   Btn0.setPressFunction([] {
-    int ly = ctrl.getLayer();
-    if (ly == lyWIFI)
+    switch (ctrl.getLayer())
     {
+    case lyWIFI:
       cancelScanWifi();
       ctrl.setLayer(lyDEFAULT);
-    }
-    else if (ly == lyWIFIPW)
+      break;
+    case lyWIFIPW:
       ctrl.setLayer(lyDEFAULT);
+      break;
+    case lyIMGLIST:
+      ctrl.setLayer(lyDEFAULT);
+      break;
+    default:
+      break;
+    }
   });
   Btn1.setPressFunction([] {
     if (ctrl.getLayer() == lyWIFIPW)
