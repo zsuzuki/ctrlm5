@@ -335,9 +335,9 @@ void setup()
   ctrl.setLayer(lyIMGLIST);
   ctrl.appendWidget(&imgList);
   topY = 10;
-  imgList.init(6, 240);
+  imgList.init(20, 240, 180);
   imgList.setGeometory(20, topY);
-  apList.setSelectFunction([](int idx, const char *str) {
+  imgList.setSelectFunction([](int idx, const char *str) {
     Serial.println(str);
   });
 
@@ -361,14 +361,31 @@ void setup()
     }
   });
   Btn1.setPressFunction([] {
-    if (ctrl.getLayer() == lyWIFIPW)
+    switch (ctrl.getLayer())
     {
+    case lyWIFIPW:
       keyboard.getString(password, sizeof(password));
       store.clearIndex();
       store.storeString(password);
       store.storeString(ssid);
       ctrl.setLayer(lyDEFAULT);
       updateSSID = true;
+      break;
+    case lyIMGLIST:
+      imgList.scoll(-1);
+      break;
+    default:
+      break;
+    }
+  });
+  Btn2.setPressFunction([] {
+    switch (ctrl.getLayer())
+    {
+    case lyIMGLIST:
+      imgList.scoll(1);
+      break;
+    default:
+      break;
     }
   });
 

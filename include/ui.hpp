@@ -512,6 +512,8 @@ namespace UI
 
         std::vector<String> strList;
         size_t selected = -1;
+        int dispIndex = 0;
+        int dispRow = 0;
         SelectFunction selectFunc = nullptr;
         portMUX_TYPE listMux = portMUX_INITIALIZER_UNLOCKED;
 
@@ -520,20 +522,24 @@ namespace UI
             gfx->drawRect(x, y, w, h, TFT_WHITE);
             int dy = y;
             portENTER_CRITICAL(&listMux);
-            for (size_t i = 0; i < strList.size(); i++)
+            for (size_t i = 0; i < dispRow; i++)
             {
-                int fg = i == selected ? TFT_BLACK : TFT_WHITE;
-                int bg = i == selected ? TFT_ORANGE : TFT_BLACK;
-                gfx->setTextColor(fg);
+                int idx = i + dispIndex;
+                int fg = idx == selected ? TFT_BLACK : TFT_WHITE;
+                int bg = idx == selected ? TFT_ORANGE : TFT_BLACK;
                 gfx->fillRect(x + mX, dy + mY, w - mX * 2, context->fontHeight, bg);
-                gfx->drawString(strList[i], x + mX, dy + mY);
+                if (idx < strList.size())
+                {
+                    gfx->setTextColor(fg);
+                    gfx->drawString(strList[idx], x + mX, dy + mY);
+                }
                 dy += context->fontHeight + mY;
             }
             portEXIT_CRITICAL(&listMux);
         }
         void onPressed(int, int ofsy) override
         {
-            size_t sel = ofsy / (context->fontHeight + mY);
+            size_t sel = ofsy / (context->fontHeight + mY) + dispIndex;
             portENTER_CRITICAL(&listMux);
             if (sel < strList.size())
             {
@@ -552,6 +558,19 @@ namespace UI
         ~ListBox() = default;
 
         //
+        void scoll(int ofs)
+        {
+            int di = max(0, dispIndex + ofs);
+            if (di >= strList.size())
+                di = strList.size() - 1;
+            if (di != dispIndex)
+            {
+                dispIndex = di;
+                update();
+            }
+        }
+
+        //
         void setSelectFunction(SelectFunction sf)
         {
             selectFunc = sf;
@@ -562,7 +581,15 @@ namespace UI
         {
             portENTER_CRITICAL(&listMux);
             if (height == 0)
-                height = n * (context->fontHeight + mY) + mY;
+            {
+                h = n * (context->fontHeight + mY) + mY;
+                dispRow = n;
+            }
+            else
+            {
+                h = height;
+                dispRow = (height - mY) / (context->fontHeight + mY);
+            }
 
             if (n > strList.capacity())
             {
@@ -574,13 +601,15 @@ namespace UI
             {
                 w = width;
             }
-            h = height;
+            dispIndex = 0;
             portEXIT_CRITICAL(&listMux);
         }
         void clear()
         {
             portENTER_CRITICAL(&listMux);
             strList.resize(0);
+            selected = -1;
+            dispIndex = 0;
             update();
             portEXIT_CRITICAL(&listMux);
         }
