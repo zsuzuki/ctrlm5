@@ -264,12 +264,18 @@ namespace UI
     ///
     class Control
     {
+    public:
+        using ChangeLayerHook = void (*)(void *);
+
+    private:
         Context context;
         LGFX *gfx = nullptr;
         Layer layerPool[10]{};
         int layerIndex = 0;
         Layer *layer = nullptr;
         bool requestLayer = false;
+        ChangeLayerHook layerHook = nullptr;
+        void *layerHookArg = nullptr;
 
     public:
         void init(LGFX *g)
@@ -278,11 +284,13 @@ namespace UI
             setLayer(0);
         }
         ///
-        void setLayer(int idx)
+        void setLayer(int idx, ChangeLayerHook hook = nullptr, void *arg = nullptr)
         {
             requestLayer = true;
             layerIndex = idx;
             layer = &layerPool[layerIndex];
+            layerHook = hook;
+            layerHookArg = arg;
         }
         int getLayer() const { return layerIndex; }
         ///
@@ -326,6 +334,9 @@ namespace UI
                 if (next == dset)
                     break;
             }
+            if (requestLayer && layerHook)
+                layerHook(layerHookArg);
+            layerHook = nullptr;
             context.drawRequest = false;
             requestLayer = false;
         }

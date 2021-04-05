@@ -82,6 +82,7 @@ namespace
     lyDATETIME,
     lyWIFIPW,
     lyIMGLIST,
+    lyIMGDISP,
   };
 
   char ssid[32];
@@ -215,9 +216,86 @@ void scanFileSD()
       Serial.println(file.name());
       if (file.isDirectory() == false)
         imgList.append(file.name());
+      file.close();
+    }
+    dir.rewindDirectory();
+    dir.close();
+  }
+  delay(1000);
+  Serial.println("SD scan done");
+}
+
+//
+// disp .img
+//
+static String imageFileName = "";
+static File imageFile;
+static int16_t imageWidth, imageHeight;
+static uint16_t *imageLine = nullptr;
+static int16_t imageProcY = -1;
+void startDispImage(const char *fname)
+{
+  imageFileName = fname;
+}
+//
+void initDispImage()
+{
+  if (File f = SD.open(imageFileName))
+  {
+    Serial.printf("image open: [%s]\n", imageFileName.c_str());
+    uint8_t head[4];
+    if (f.read(head, 4) < 4)
+    {
+      Serial.println("read header error");
+      return;
+    }
+    Serial.printf("Header: %c%c%c%c\n", head[0], head[1], head[2], head[3]);
+    f.read((uint8_t *)&imageWidth, 2);
+    f.read((uint8_t *)&imageHeight, 2);
+    Serial.printf(" Size: %dx%d\n", imageWidth, imageHeight);
+    imageFile = f;
+    imageLine = (uint16_t *)malloc(imageWidth * 2);
+    imageProcY = 0;
+  }
+  else
+  {
+    Serial.printf("open failed: [%s]\n", imageFileName.c_str());
+  }
+  imageFileName.clear();
+}
+//
+void updateDispImage()
+{
+  if (imageFile)
+  {
+    if (imageProcY < imageHeight)
+    {
+      imageFile.read((uint8_t *)imageLine, imageWidth * 2);
+    }
+    else
+    {
+      imageProcY = -1;
+      imageFile.close();
+      Serial.println("close image file");
     }
   }
-  Serial.println("SD scan done");
+  else if (!imageFileName.isEmpty())
+  {
+    initDispImage();
+  }
+}
+//
+void drawDispImage()
+{
+  if (imageProcY < 0)
+    return;
+
+  for (int x = 0; x < imageWidth; x++)
+  {
+    auto color = imageLine[x];
+    gfx.drawPixel(x, imageProcY, color);
+  }
+  imageProcY++;
 }
 
 //
@@ -339,6 +417,8 @@ void setup()
   imgList.setGeometory(20, topY);
   imgList.setSelectFunction([](int idx, const char *str) {
     Serial.println(str);
+    startDispImage(str);
+    ctrl.setLayer(lyIMGDISP);
   });
 
   //
@@ -351,10 +431,11 @@ void setup()
       ctrl.setLayer(lyDEFAULT);
       break;
     case lyWIFIPW:
-      ctrl.setLayer(lyDEFAULT);
-      break;
     case lyIMGLIST:
       ctrl.setLayer(lyDEFAULT);
+      break;
+    case lyIMGDISP:
+      ctrl.setLayer(lyIMGLIST);
       break;
     default:
       break;
@@ -420,6 +501,7 @@ void loop()
     touch_first = tch == 0;
   }
 
+  updateDispImage();
   updateTime();
   {
     char buff[24];
@@ -451,6 +533,7 @@ void loop()
     gfx.fillRect(20, 230, 60, 10, Btn0.onPressed() ? TFT_BLUE : TFT_BLACK);
     gfx.fillRect(130, 230, 60, 10, Btn1.onPressed() ? TFT_RED : TFT_BLACK);
     gfx.fillRect(240, 230, 60, 10, Btn2.onPressed() ? TFT_GREEN : TFT_BLACK);
+    drawDispImage();
     gfx.endWrite();
   }
 
