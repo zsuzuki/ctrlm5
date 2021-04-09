@@ -7,6 +7,7 @@
 #include <worker.hpp>
 #include <store.hpp>
 #include <SD.h>
+#include <HTTPClient.h>
 
 namespace
 {
@@ -55,11 +56,14 @@ namespace
   RTC rtc;
   Store::Data store;
 
-  UI::CheckBox chkBox1;
-  UI::TextButton wifiBtn;
+  UI::TextButton settingBtn;
   UI::TextButton imgBtn;
-  UI::TextButton dateBtn;
+  UI::TextButton httpBtn;
   RTC_TimeTypeDef nTime;
+
+  UI::CheckBox infoBtn;
+  UI::TextButton wifiBtn;
+  UI::TextButton dateBtn;
 
   UI::TextButton reqBtn;
   UI::TextButton retBtn;
@@ -83,6 +87,7 @@ namespace
     lyWIFIPW,
     lyIMGLIST,
     lyIMGDISP,
+    lySETTING,
   };
 
   char ssid[32];
@@ -299,6 +304,37 @@ void drawDispImage()
 }
 
 //
+// HTTP
+//
+void httpConnect()
+{
+  WiFi.begin(ssid, password);
+  Serial.printf("Wifi connect:[%s]", ssid);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+
+  HTTPClient http;
+  http.begin("http://localhost:23456/demo");
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST("{\"machine\":\"M5Core2\"}");
+  if (code > 0)
+  {
+    Serial.printf("Result: %s\n", http.getString().c_str());
+  }
+  else
+  {
+    Serial.println("Error HTTP");
+  }
+  http.end();
+
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+}
+
+//
 // Application
 //
 void buttonUpdate(int x, int y, bool touch)
@@ -329,16 +365,17 @@ void setup()
 
   // main
   ctrl.setLayer(lyDEFAULT);
-  ctrl.appendWidget(&chkBox1);
+  ctrl.appendWidget(&settingBtn);
   ctrl.appendWidget(&imgBtn);
-  ctrl.appendWidget(&wifiBtn);
-  ctrl.appendWidget(&dateBtn);
+  ctrl.appendWidget(&httpBtn);
 
   int topY = 10;
-  chkBox1.setCaption("情報表示");
-  chkBox1.setGeometory(40, topY);
-  chkBox1.setValue(true);
-  topY += chkBox1.getHeight() + 5;
+  settingBtn.setCaption("設定");
+  settingBtn.setGeometory(40, topY);
+  settingBtn.setPressFunction([](UI::Widget *) {
+    ctrl.setLayer(lySETTING);
+  });
+  topY += settingBtn.getHeight() + 5;
   imgBtn.setCaption("画像リスト");
   imgBtn.setGeometory(40, topY);
   imgBtn.setPressFunction([](UI::Widget *) {
@@ -346,6 +383,24 @@ void setup()
     worker.signal([](int) { scanFileSD(); }, 0);
   });
   topY += imgBtn.getHeight() + 5;
+  httpBtn.setCaption("HTTPテスト");
+  httpBtn.setGeometory(40, topY);
+  httpBtn.setPressFunction([](UI::Widget *) {
+    ctrl.setLayer(lyIMGLIST);
+    worker.signal([](int) { httpConnect(); }, 0);
+  });
+  // topY += imgBtn.getHeight() + 5;
+
+  // setting
+  topY = 10;
+  ctrl.setLayer(lySETTING);
+  ctrl.appendWidget(&wifiBtn);
+  ctrl.appendWidget(&dateBtn);
+  ctrl.appendWidget(&infoBtn);
+  infoBtn.setCaption("情報表示");
+  infoBtn.setGeometory(40, topY);
+  infoBtn.setValue(true);
+  topY += infoBtn.getHeight() + 5;
   wifiBtn.setCaption("Wifi設定");
   wifiBtn.setGeometory(40, topY);
   wifiBtn.setPressFunction([](UI::Widget *) {
@@ -397,7 +452,7 @@ void setup()
   ctrl.setLayer(lyWIFIPW);
   ctrl.appendWidget(&keyboard);
   topY = 20;
-  keyboard.init(24);
+  keyboard.init(22);
   keyboard.setGeometory(10, topY);
   keyboard.setPlaceHolder("wifi password");
   if (store.loadString(0, password, sizeof(password)))
@@ -428,9 +483,11 @@ void setup()
     {
     case lyWIFI:
       cancelScanWifi();
-      ctrl.setLayer(lyDEFAULT);
+      ctrl.setLayer(lySETTING);
       break;
     case lyWIFIPW:
+      ctrl.setLayer(lySETTING);
+      break;
     case lyIMGLIST:
       ctrl.setLayer(lyDEFAULT);
       break;
@@ -449,7 +506,7 @@ void setup()
       store.clearIndex();
       store.storeString(password);
       store.storeString(ssid);
-      ctrl.setLayer(lyDEFAULT);
+      ctrl.setLayer(lySETTING);
       updateSSID = true;
       break;
     case lyIMGLIST:
@@ -507,7 +564,7 @@ void loop()
     char buff[24];
     gfx.startWrite();
     ctrl.drawWidgets();
-    if (chkBox1.getValue())
+    if (infoBtn.getValue())
     {
       gfx.setTextColor(TFT_YELLOW);
       static int ns = 0;
